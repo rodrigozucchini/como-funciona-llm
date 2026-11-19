@@ -7,8 +7,8 @@ Guía por temas para entender cómo funcionan los modelos de lenguaje. Cada tema
 ### Esenciales
 
 - [x] [01. Tokens y tokenización](01-tokens-y-tokenizacion/README.md) (BPE, SentencePiece y costo por token)
-- [ ] [02. Embeddings y similitud coseno](02-embeddings-y-similitud-coseno/README.md)
-- [ ] [03. Atención y self-attention](03-atencion-self-attention-multi-head/README.md) (multi-head)
+- [x] [02. Embeddings y similitud coseno](02-embeddings-y-similitud-coseno/README.md)
+- [x] [03. Atención y self-attention](03-atencion-self-attention-multi-head/README.md) (multi-head)
 - [ ] [04. Arquitectura Transformer](04-arquitectura-transformer-decoder-only/README.md) (decoder-only)
 - [ ] [05. Predicción del siguiente token y sampling](05-siguiente-token-y-sampling/README.md) (temperature, top-p, top-k)
 - [ ] [06. Ventana de contexto y context rot](06-ventana-de-contexto-y-context-rot/README.md)
@@ -33,4 +33,4 @@ Guía por temas para entender cómo funcionan los modelos de lenguaje. Cada tema
 2. Añade un `README.md` con la explicación y los enlaces a los ejemplos.
 3. Agrega el tema a la lista de arriba con su nivel: esencial, recomendado u opcional.
 
-Los ejemplos y errores del tema de tokenización están en [01-tokens-y-tokenizacion](01-tokens-y-tokenizacion/README.md).
+Cada tema completo trae su código: implementaciones y errores comunes en [01](01-tokens-y-tokenizacion/README.md) y [02](02-embeddings-y-similitud-coseno/README.md), y scripts de atención en [03](03-atencion-self-attention-multi-head/README.md).
