@@ -9,7 +9,7 @@ Guía por temas para entender cómo funcionan los modelos de lenguaje. Cada tema
 - [x] [01. Tokens y tokenización](01-tokens-y-tokenizacion/README.md) (BPE, SentencePiece y costo por token)
 - [x] [02. Embeddings y similitud coseno](02-embeddings-y-similitud-coseno/README.md)
 - [x] [03. Atención y self-attention](03-atencion-self-attention-multi-head/README.md) (multi-head)
-- [ ] [04. Arquitectura Transformer](04-arquitectura-transformer-decoder-only/README.md) (decoder-only)
+- [x] [04. Arquitectura Transformer](04-arquitectura-transformer-decoder-only/README.md) (decoder-only)
 - [ ] [05. Predicción del siguiente token y sampling](05-siguiente-token-y-sampling/README.md) (temperature, top-p, top-k)
 - [ ] [06. Ventana de contexto y context rot](06-ventana-de-contexto-y-context-rot/README.md)
 - [ ] [07. KV cache, prefill y decode](07-kv-cache-prefill-decode-prompt-caching/README.md) (prompt caching)
