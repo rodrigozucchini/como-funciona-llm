@@ -1,194 +1,133 @@
 # Embeddings y similitud coseno
 
-Un **embedding** es una lista de números (un **vector**) que representa el *significado* de un texto. Un modelo de embeddings recibe texto y devuelve siempre un vector del mismo tamaño, por ejemplo 1024 números. La gracia está en que **textos que significan algo parecido quedan cerca** en ese espacio, aunque no compartan ni una palabra.
+> Viene de [01. Tokens](../01-tokens-y-tokenizacion/README.md): el texto ya es una lista de números (IDs). Pero un ID es solo una etiqueta: `9081` no está "más cerca" de `9082` en ningún sentido. Este tema explica cómo cada token pasa a tener un **significado** que se puede medir.
+
+---
+
+## 1. Qué es un embedding
+
+Un **embedding** es una lista de números (un **vector**) que representa el significado de algo: un token, una palabra o un texto entero.
 
 ```
-"¿cómo reseteo mi contraseña?"  ──► modelo ──►  [ 0.12, -0.48,  0.33, ...,  0.07 ]  ─┐
-                                                                                      ├─►  coseno = 0,86  (muy parecidos)
-"olvidé la clave de mi cuenta"  ──► modelo ──►  [ 0.10, -0.51,  0.29, ...,  0.11 ]  ─┤
-                                                                                      │
-"receta de empanadas salteñas"  ──► modelo ──►  [-0.40,  0.22, -0.05, ..., -0.31 ]  ─┴─►  coseno = 0,08  (nada que ver)
+"perro"    →  [ 0.21, -0.43,  0.88, …,  0.05 ]
+"can"      →  [ 0.19, -0.40,  0.85, …,  0.07 ]   ← muy parecido
+"impuesto" →  [-0.62,  0.11, -0.05, …,  0.93 ]   ← muy distinto
 ```
 
-Para medir qué tan cerca están dos vectores se usa casi siempre la **similitud coseno**: el coseno del ángulo entre ellos. Con eso se arma búsqueda semántica, RAG, recomendaciones, detección de duplicados, clustering y clasificación.
+Cada número es una coordenada. Con 2 números, cada palabra sería un punto en un plano; un embedding usa cientos o miles de números, pero la idea es la misma: **un mapa del significado, donde lo parecido queda cerca**. Nadie decide qué significa cada coordenada: sale del entrenamiento.
 
-## Por qué no comparar palabras
+---
 
-| Enfoque | Qué compara | Problema |
-|---|---|---|
-| **Texto exacto** | Caracteres iguales | `contraseña` y `clave` no coinciden en nada |
-| **Palabras en común (bag of words, TF-IDF)** | Qué palabras aparecen y cuánto | No sabe que `auto` y `coche` son lo mismo; vectores enormes y casi todos ceros |
-| **Embeddings** | Posición en un espacio de significado | Captura sinónimos, paráfrasis y hasta otros idiomas. Es lo que se usa |
+## 2. Dentro del LLM: la tabla de embeddings
 
-## Conceptos clave
-
-| Concepto | Qué es |
-|---|---|
-| **Vector** | Una lista ordenada de números. Un embedding es un vector. |
-| **Dimensión** | Cuántos números tiene el vector (384, 768, 1024, 1536, 3072...). Fija para cada modelo. |
-| **Espacio vectorial** | El "mapa" donde viven todos los vectores. Cada dimensión es un eje. |
-| **Denso / disperso** | Denso: todos los números importan (embeddings). Disperso: casi todos son cero (bag of words). |
-| **Norma (magnitud)** | El "largo" del vector: raíz de la suma de los cuadrados. |
-| **Normalizar** | Dividir el vector por su norma para que mida 1. Queda solo la dirección. |
-| **Producto punto** | Multiplicar coordenada a coordenada y sumar. Base de casi todas las métricas. |
-| **Similitud coseno** | Producto punto dividido por las dos normas. Va de −1 a 1 y solo mira el ángulo. |
-| **Distancia euclidiana** | La distancia "en línea recta" entre dos puntos. |
-| **Embedding estático** | Un vector fijo por palabra, sin importar el contexto (word2vec, GloVe). |
-| **Embedding contextual** | El vector depende de la oración completa (modelos basados en transformers). |
-| **Pooling** | Cómo se pasa de un vector por token a un único vector por texto (promedio, `[CLS]`...). |
-| **Aprendizaje contrastivo** | Entrenar acercando pares que significan lo mismo y alejando los que no. |
-| **Top-k** | Los k vectores más parecidos a una consulta. |
-| **ANN** | *Approximate Nearest Neighbors*: búsqueda aproximada para no comparar contra todo. |
-| **Base vectorial** | Base de datos que guarda vectores y los busca por similitud (pgvector, Qdrant, FAISS...). |
-| **Chunk** | El pedazo de documento que se convierte en un embedding. |
-
-## Cómo se llegó a los embeddings actuales
-
-### 1. One-hot y bag of words
-
-Cada palabra es una dimensión. Un texto es un vector que cuenta qué palabras tiene.
-- ✅ Simple, interpretable, no hay que entrenar nada.
-- ❌ Vectores del tamaño del vocabulario, casi todo ceros. `perro` y `can` son tan distintos como `perro` y `avión`.
-
-### 2. Embeddings estáticos (word2vec, GloVe, FastText)
-
-Se entrena una red chica para predecir qué palabras aparecen juntas. De rebote, cada palabra termina con un vector denso de 100–300 dimensiones donde los sinónimos quedan cerca. De acá sale el famoso `rey − hombre + mujer ≈ reina`.
-- ✅ Densos, chicos, capturan relaciones de significado.
-- ❌ Un solo vector por palabra: `banco` (para sentarse) y `banco` (de plata) son el mismo punto. No hay vector para una oración entera.
-
-### 3. Embeddings contextuales (BERT, Sentence-BERT)
-
-Un transformer lee la oración completa y da un vector por token que depende de sus vecinos. Para tener uno por oración se hace **pooling**. Sentence-BERT (2019) mostró que hay que **ajustar** el modelo para que esos vectores sirvan para comparar.
-- ✅ Resuelve la polisemia, representa oraciones y párrafos.
-- ❌ BERT "crudo" con promedio da similitudes malas: hace falta entrenamiento específico.
-
-### 4. Modelos de embeddings modernos
-
-Transformers entrenados con **aprendizaje contrastivo** sobre cientos de millones de pares (pregunta–respuesta, título–cuerpo, traducciones). Son lo que se usa hoy en producción.
-- ✅ Multilingües, entienden código, aceptan miles de tokens, varios permiten elegir la dimensión.
-- ❌ Cada modelo tiene su propio espacio: los vectores de uno no se comparan con los de otro.
-- Ejemplos: Voyage, OpenAI `text-embedding-3`, Cohere Embed, Gemini Embedding y abiertos como E5, BGE, GTE, Nomic o Jina.
-
-| | Bag of words | word2vec | BERT + pooling | Modelos modernos |
-|---|---|---|---|---|
-| Tipo de vector | Disperso | Denso | Denso | Denso |
-| Dimensión | Tamaño del vocabulario | 100–300 | 768 | 384–4096 |
-| Entiende sinónimos | No | Sí | Sí | Sí |
-| Depende del contexto | No | No | Sí | Sí |
-| Sirve para comparar oraciones | Poco | Poco | Poco (sin ajuste) | Sí |
-
-## Similitud coseno
-
-Mide el **ángulo** entre dos vectores, sin importar lo largos que sean:
+Lo primero que hace un LLM con cada ID es buscarlo en una tabla: una fila por token del vocabulario.
 
 ```
-                    a · b              suma de (aᵢ × bᵢ)
-   coseno(a, b) = ─────────  =  ───────────────────────────────
-                   |a| |b|       √(suma de aᵢ²) × √(suma de bᵢ²)
+tabla de embeddings (GPT-2: 50.257 filas × 768 números)
+
+ID 412   ("▁los")    →  fila 412   →  [ 0.12, -0.48,  0.33, …,  0.07 ]
+ID 9081  ("▁gatit")  →  fila 9081  →  [-0.40,  0.22, -0.05, …, -0.31 ]
 ```
 
-| Valor | Ángulo | Qué significa |
-|---|---|---|
-| **1** | 0° | Misma dirección: mismo significado |
-| **0** | 90° | Sin relación |
-| **−1** | 180° | Direcciones opuestas (en la práctica casi no aparece con embeddings de texto) |
+Al principio esa tabla tiene números al azar. Durante el entrenamiento se ajusta junto con el resto del modelo, y los tokens que se usan de forma parecida terminan con vectores parecidos.
 
-Ejemplo a mano con vectores de 3 dimensiones:
+---
+
+## 3. Por qué no alcanza con una lista de palabras
+
+La forma más simple de convertir palabras en vectores es **one-hot**: un vector tan largo como el vocabulario, con un único `1` en la posición de la palabra.
 
 ```
-a = (1, 2, 2)     |a| = √(1 + 4 + 4) = 3
-b = (2, 1, 2)     |b| = √(4 + 1 + 4) = 3
+perro → [1, 0, 0, …]
+can   → [0, 1, 0, …]
+avión → [0, 0, 1, …]
+```
+
+Problema: todos quedan **a la misma distancia de todos**. Para este sistema, `perro` y `can` son tan distintos como `perro` y `avión`. Contar qué palabras tiene un texto (*bag of words*) tiene el mismo defecto: no sabe que `auto` y `coche` son lo mismo.
+
+Un embedding resuelve eso: usa pocos números (no miles de ceros) y ubica a `perro` cerca de `can`.
+
+---
+
+## 4. Cómo se mide "cerca": similitud coseno
+
+Cada vector es una flecha. La **similitud coseno** mide el **ángulo** entre dos flechas, sin importar lo largas que sean:
+
+- Apuntan al mismo lado → **1** (mismo significado)
+- Forman un ángulo recto → **0** (sin relación)
+- Apuntan a lados opuestos → **−1** (con texto casi no pasa)
+
+La cuenta:
+
+```
+                    a · b         a · b  →  multiplicar coordenada a coordenada y sumar
+   coseno(a, b) = ─────────       |a|    →  largo de la flecha: √(suma de los cuadrados)
+                   |a| |b|
+
+a = (1, 2, 2)    b = (2, 1, 2)
 
 a · b = 1×2 + 2×1 + 2×2 = 8
+|a| = |b| = √(1 + 4 + 4) = 3
 
-coseno(a, b) = 8 / (3 × 3) = 0,889
+coseno = 8 / (3 × 3) = 0,889   → muy parecidos
 ```
 
-Y por qué se usa coseno y no distancia: `c = (2, 4, 4)` es `a` multiplicado por 2. Están a distancia 3 uno del otro, pero apuntan exactamente al mismo lado: `coseno(a, c) = 1`. En embeddings lo que lleva el significado es la **dirección**, no el largo.
+**Por qué el ángulo y no la distancia:** `(2, 4, 4)` es `a` multiplicado por 2. Es una flecha más larga, pero apunta exactamente al mismo lado: coseno = 1. En embeddings, **la dirección es lo que lleva el significado**; el largo suele depender de detalles sin importancia.
 
-Un detalle que importa en la práctica: **si los vectores están normalizados (norma 1), el coseno es igual al producto punto**, y ordenar por distancia euclidiana da el mismo ranking. Por eso muchas bases vectoriales normalizan y usan producto punto, que es más barato de calcular.
+**El truco práctico:** si todos los vectores se ajustan para medir 1 (se **normalizan**), el coseno es simplemente `a · b`, que es lo más barato de calcular. Por eso casi todos los sistemas normalizan.
 
-> El detalle de la fórmula, la geometría y la comparación con otras métricas está en [`05-similitud-coseno`](implementaciones/05-similitud-coseno) y [`06-metricas-de-distancia`](implementaciones/06-metricas-de-distancia).
+Ojo: cada modelo tiene su propia escala. En uno, dos textos sin relación dan 0,1; en otro, 0,7. **Lo confiable es el orden** (cuál es más parecido), no el número.
 
-## Costo y almacenamiento
+---
 
-Generar embeddings se cobra **por token de input** (no hay output), y es mucho más barato que un LLM. Lo que suele pesar es **guardar y buscar** los vectores:
+## 5. Cómo un vector aprende a "significar" algo
+
+**Una palabra se conoce por las palabras que la acompañan.** `perro` y `can` aparecen rodeadas de `ladra`, `correa`, `paseo`. Si se entrena un sistema para adivinar las palabras vecinas, las que tienen vecinas parecidas terminan con vectores parecidos. Así funcionó **word2vec** (2013), y salieron relaciones como direcciones en el mapa:
 
 ```
-1.000.000 de chunks × 1536 dimensiones × 4 bytes (float32)  =  6,1 GB   ← y casi siempre tiene que estar en RAM
-1.000.000 de chunks × 1536 dimensiones × 1 byte  (int8)     =  1,5 GB
-1.000.000 de chunks × 1536 dimensiones × 1 bit   (binario)  =  0,19 GB
+rey − hombre + mujer  ≈  reina
+París − Francia + Italia  ≈  Roma
 ```
 
-Tres cosas que se desprenden de esto:
-1. **La dimensión se paga en memoria, en cada búsqueda y para siempre**: 3072 dimensiones cuestan el doble que 1536 y no siempre rinden el doble.
-2. **Cambiar de modelo obliga a re-embeddear todo**: los vectores viejos no sirven con el modelo nuevo.
-3. **Los tokens importan acá también**: el límite de cada modelo se mide en tokens (ver el proyecto [`tokens`](../tokens)), y lo que se pasa se trunca o da error.
+Límite: **un solo vector por palabra**. `banco` (para sentarse) y `banco` (de plata) quedan en el mismo punto.
 
-## Errores comunes
+**Vectores según el contexto.** Los modelos modernos leen la oración entera, y el vector de cada token cambia según lo que lo rodea: `banco` en "me senté en el banco de la plaza" y en "saqué plata del banco" termina en lugares distintos. El mecanismo que hace eso es la **atención** ([tema 03](../03-atencion-self-attention-multi-head/README.md)).
 
-### 1. Comparar vectores de modelos distintos
-Dos modelos con la misma dimensión siguen teniendo espacios distintos: el coseno entre sus vectores no significa nada. Lo mismo pasa entre versiones del mismo modelo.
-→ Guardar con cada vector qué modelo y versión lo generó, y re-indexar todo al cambiar.
+**Modelos de embeddings.** Para buscar o comparar textos se usan modelos aparte (Voyage, OpenAI `text-embedding-3`, E5, BGE…) que devuelven **un vector por texto completo**. Se entrenan con millones de **pares** que significan lo mismo (pregunta ↔ respuesta, título ↔ artículo, frase ↔ traducción): se acercan los pares correctos y se alejan los demás.
 
-### 2. No normalizar
-Usar producto punto con vectores que no miden 1: los textos con vectores "más largos" ganan siempre, sin ser más parecidos.
-→ Normalizar al guardar y al consultar, o usar coseno directamente.
+Cada modelo arma **su propio mapa**: los vectores de un modelo no se pueden comparar con los de otro.
 
-### 3. Usar un umbral fijo de similitud
-"Si el coseno da más de 0,8 es lo mismo". Cada modelo tiene su propio rango: en algunos, dos textos sin relación ya dan 0,7.
-→ Calibrar el umbral con ejemplos reales del modelo que usás, o trabajar con rankings en vez de números absolutos.
+---
 
-### 4. Embeddear la consulta igual que los documentos
-Muchos modelos son asimétricos: esperan un prefijo o un `input_type` distinto para la pregunta y para el documento. Si no se lo pasás, la búsqueda empeora en silencio.
-→ Leer la documentación del modelo y usar el modo de consulta y de documento que corresponde.
+## 6. Para qué se usan: buscar por significado
 
-### 5. Cortar mal los chunks
-Un chunk enorme promedia demasiados temas y no se parece a nada; uno chiquito pierde el contexto. Y si pasa el límite de tokens del modelo, se trunca.
-→ Cortar por estructura (secciones, párrafos), con un tamaño que el modelo acepte y algo de solapamiento.
+Con un vector por texto se puede encontrar lo parecido aunque no comparta ninguna palabra:
 
-### 6. Confundir "parecido" con "relevante"
-`el producto funciona` y `el producto no funciona` dan una similitud altísima: hablan de lo mismo. Los embeddings capturan el tema mejor que la negación o la intención.
-→ Un reranker sobre los primeros resultados, o reglas para los casos que importan.
+```
+guardar:  documentos → partir en pedazos → modelo de embeddings → vectores → base de datos
+buscar:   pregunta   → mismo modelo      → vector → los más parecidos
+```
 
-### 7. Buscar palabras exactas con embeddings
-Códigos de error, SKUs, nombres propios raros, números de factura: el embedding los "suaviza" y trae cosas parecidas en vez de la exacta.
-→ Búsqueda híbrida: embeddings + búsqueda por palabras clave (BM25), y combinar los rankings.
+```
+"¿cómo reseteo mi contraseña?"  vs  "olvidé la clave de mi cuenta"   →  0,86  ✓ lo encuentra
+"¿cómo reseteo mi contraseña?"  vs  "receta de empanadas"            →  0,08
+```
 
-### 8. No medir
-Elegir modelo, chunking, umbral o índice "a ojo", y no saber cuánto se pierde con la búsqueda aproximada.
-→ Un set de consultas con sus respuestas correctas, y medir recall@k y MRR en cada cambio.
+Es la base de RAG (darle al LLM documentos relevantes antes de responder), buscadores internos, recomendaciones y detección de duplicados. Con millones de documentos no se compara contra todos: se usan índices que encuentran los más cercanos sin revisar cada uno.
 
-## Estructura
+**Lo que no hace bien:**
+- **Parecido no es lo mismo que relevante.** "El producto funciona" y "el producto no funciona" quedan muy cerca: hablan de lo mismo, aunque digan lo contrario.
+- **Códigos y nombres exactos.** `ERR-4012` y `ERR-4021` son casi iguales para un embedding. Para eso se combina con la búsqueda por palabras de siempre (búsqueda **híbrida**).
+- **Ocupan memoria.** 1 millón de vectores de 1.536 números ocupan unos 6 GB. Se pueden achicar guardando cada número con menos precisión, perdiendo muy poca calidad.
 
-- [`implementaciones/`](implementaciones): cada pieza del mecanismo, explicada con diagramas y ejemplos a mano.
-  1. [`01-one-hot-y-bag-of-words`](implementaciones/01-one-hot-y-bag-of-words): representar texto contando palabras, y por qué no alcanza.
-  2. [`02-word2vec`](implementaciones/02-word2vec): aprender un vector por palabra a partir de sus vecinas.
-  3. [`03-embeddings-contextuales`](implementaciones/03-embeddings-contextuales): transformers, un vector por token y pooling.
-  4. [`04-entrenamiento-contrastivo`](implementaciones/04-entrenamiento-contrastivo): cómo se entrena un modelo de embeddings moderno.
-  5. [`05-similitud-coseno`](implementaciones/05-similitud-coseno): la fórmula paso a paso y qué mide de verdad.
-  6. [`06-metricas-de-distancia`](implementaciones/06-metricas-de-distancia): coseno, producto punto y euclidiana, y cuándo dan lo mismo.
-  7. [`07-busqueda-semantica`](implementaciones/07-busqueda-semantica): de buscar contra todo a los índices aproximados (HNSW, IVF).
-  8. [`08-dimensiones-y-cuantizacion`](implementaciones/08-dimensiones-y-cuantizacion): achicar vectores sin perder (casi) nada.
-- [`errores/`](errores): cada error común, cómo se ve y cómo se arregla.
-  1. [`01-mezclar-modelos`](errores/01-mezclar-modelos): vectores de modelos o versiones distintas no se comparan.
-  2. [`02-no-normalizar`](errores/02-no-normalizar): el largo del vector se cuela en el ranking.
-  3. [`03-umbral-fijo`](errores/03-umbral-fijo): un 0,8 no significa lo mismo en todos los modelos.
-  4. [`04-query-y-documento-iguales`](errores/04-query-y-documento-iguales): modelos asimétricos usados como simétricos.
-  5. [`05-chunks-mal-cortados`](errores/05-chunks-mal-cortados): muy largos, muy cortos o truncados en silencio.
-  6. [`06-parecido-no-es-relevante`](errores/06-parecido-no-es-relevante): negaciones, intención y temas cercanos.
-  7. [`07-palabras-exactas`](errores/07-palabras-exactas): códigos, IDs y nombres propios necesitan búsqueda por palabras.
-  8. [`08-no-medir`](errores/08-no-medir): sin un set de evaluación todo es a ojo.
+---
 
-Este proyecto es solo explicación: no hay código. Cada carpeta tiene un `README.md` con el concepto, diagramas, ejemplos hechos a mano y los ✅ / ❌.
+## Resumen
 
-## Plan del proyecto
+- Un **embedding** es una lista de números que ubica algo en un mapa del significado: lo parecido queda cerca.
+- Dentro del LLM, cada token arranca con un vector sacado de una **tabla que se aprende** al entrenar.
+- La cercanía se mide con la **similitud coseno**: el ángulo entre dos vectores.
+- Los vectores aprenden significado por el **contexto**: qué palabras aparecen cerca.
+- Fuera del LLM, sirven para **buscar por significado** (RAG), con sus límites: negaciones y palabras exactas.
 
-Para pasar de la teoría a ver números reales:
-
-1. **Coseno a mano**: calcular la similitud de los vectores chicos del ejemplo y comprobar que normalizar + producto punto da lo mismo.
-2. **Un modelo real**: embeddear 20 frases (sinónimos, paráfrasis, negaciones, otro idioma) y armar la matriz de similitudes.
-3. **Comparar modelos**: repetir el paso 2 con dos modelos distintos y ver que los rangos de coseno no son los mismos.
-4. **Búsqueda semántica**: indexar un conjunto de documentos, buscar por fuerza bruta y después con un índice ANN, y medir cuánto recall se pierde.
-5. **Achicar**: truncar dimensiones y cuantizar, y medir el impacto en memoria y en recall.
-6. **Romperlo a propósito**: reproducir los errores de arriba con un modelo real.
+**Siguiente:** cada token tiene su vector, pero todavía no sabe nada de los tokens que lo rodean → [03. Atención](../03-atencion-self-attention-multi-head/README.md).

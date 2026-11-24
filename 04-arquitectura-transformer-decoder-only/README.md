@@ -1,6 +1,6 @@
 # Arquitectura Transformer decoder-only
 
-> Cómo se arma un LLM completo (GPT, Claude, Llama) a partir de las piezas que ya vimos: tokens, embeddings y attention.
+> Viene de [03. Atención](../03-atencion-self-attention-multi-head/README.md). Acá se juntan las piezas (tokens, embeddings y attention) en un LLM completo: GPT, Claude, Llama.
 
 ---
 
@@ -26,7 +26,7 @@ Se llama *decoder-only* porque el Transformer original (2017, traducción) tení
 
 1. El texto se tokeniza → `[0, 1, 2]` (ver [tema 01](../01-tokens-y-tokenizacion/README.md)).
 2. Cada id se busca en la **tabla de embeddings** → un vector de `d_model` números (ver [tema 02](../02-embeddings-y-similitud-coseno/README.md)).
-3. Se le suma información de **posición**, porque attention por sí sola no sabe el orden (GPT-2 usa posiciones aprendidas; los modelos modernos usan RoPE, ver [tema 11](../11-positional-encoding-y-gqa/README.md)).
+3. Se le suma información de **posición**, porque attention por sí sola no sabe el orden (GPT-2 usa posiciones aprendidas; los modelos modernos usan RoPE).
 
 Resultado: una matriz `x` de forma `(T, d_model)`, un vector por token. Esa matriz es el **residual stream**: viaja por todos los bloques y cada uno le *suma* algo.
 
@@ -58,21 +58,12 @@ Detalles modernos que vas a ver: **pre-norm** (LayerNorm antes, no después), **
 
 ---
 
-## 4. Máscara causal
+## 4. Por qué importa la máscara causal
 
-Cada posición solo puede atender a sí misma y a las anteriores:
+La attention de cada bloque usa la **máscara causal** del [tema 03](../03-atencion-self-attention-multi-head/README.md#7-máscara-causal-por-qué-el-modelo-no-puede-ver-el-futuro): cada token solo ve a sí mismo y a los anteriores. Consecuencia: **cambiar un token futuro no altera lo calculado para los anteriores**. Eso habilita dos cosas:
 
-```
-           el  gato  duerme
-el        [ ✓    ✗     ✗  ]
-gato      [ ✓    ✓     ✗  ]
-duerme    [ ✓    ✓     ✓  ]
-```
-
-Por eso **cambiar un token futuro no altera las salidas de las posiciones anteriores**. Esto habilita dos cosas:
-
-- **Entrenamiento en paralelo:** con una frase de T tokens se entrenan T predicciones a la vez (posición *i* predice el token *i+1*).
-- **KV cache al generar:** lo ya calculado para tokens viejos no cambia, así que se reutiliza (ver [tema 07](../07-kv-cache-prefill-decode-prompt-caching/README.md)).
+- **Entrenamiento en paralelo:** con una frase de T tokens se entrenan T predicciones a la vez (la posición *i* predice el token *i+1*).
+- **KV cache al generar:** lo calculado para los tokens viejos no cambia, así que se reutiliza (ver [tema 07](../07-kv-cache-prefill-decode-prompt-caching/README.md)).
 
 ---
 
@@ -109,13 +100,14 @@ while not terminado:
 
 ## 7. Tamaños reales
 
-| Modelo | Capas (N) | `d_model` | Cabezas | Contexto | Parámetros |
-|---|---|---|---|---|---|
-| GPT-2 small | 12 | 768 | 12 | 1 024 | 124 M |
-| GPT-3 | 96 | 12 288 | 96 | 2 048 | 175 B |
-| Llama 3 8B | 32 | 4 096 | 32 | 8 192 | 8 B |
+| Modelo | Capas (N) | `d_model` | Cabezas | `d_k` por cabeza | Contexto | Parámetros |
+|---|---|---|---|---|---|---|
+| Transformer original (2017) | 6 + 6 | 512 | 8 | 64 | — | 65 M |
+| GPT-2 small | 12 | 768 | 12 | 64 | 1 024 | 124 M |
+| GPT-3 | 96 | 12 288 | 96 | 128 | 2 048 | 175 B |
+| Llama 3 8B | 32 | 4 096 | 32 | 128 | 8 192 | 8 B |
 
-Regla rápida: cada bloque tiene ~**12 · d_model²** parámetros (4·d² en attention + 8·d² en el MLP). Para GPT-3: `96 × 12 × 12288² ≈ 174 B`. El resto son los embeddings.
+Regla rápida para un GPT clásico: cada bloque tiene ~**12 · d_model²** parámetros (4·d² en attention + 8·d² en el MLP). Para GPT-3: `96 × 12 × 12288² ≈ 174 B`. El resto son los embeddings.
 
 Escalar un LLM es básicamente **más capas, vectores más anchos y más datos**; la arquitectura casi no cambia.
 
@@ -140,7 +132,7 @@ probabilidades del próximo token (pesos aleatorios, sin entrenar):
 ¿cambiar el token 3 alteró las posiciones 1-2? False
 ```
 
-Las predicciones no tienen sentido porque nadie lo entrenó; entrenarlo es el [tema 13](../13-implementar-mini-gpt/README.md).
+Las predicciones no tienen sentido porque nadie lo entrenó.
 
 ---
 
@@ -151,6 +143,8 @@ Las predicciones no tienen sentido porque nadie lo entrenó; entrenarlo es el [t
 - La **máscara causal** impide mirar el futuro: permite entrenar en paralelo y usar KV cache.
 - Genera **un token por vez**, en loop.
 - Los modelos grandes son la misma receta, escalada.
+
+**Siguiente:** cómo se elige el próximo token a partir de esas probabilidades → [05. Siguiente token y sampling](../05-siguiente-token-y-sampling/README.md).
 
 ## Referencias
 

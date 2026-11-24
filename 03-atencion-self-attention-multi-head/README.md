@@ -1,8 +1,6 @@
 # Attention, Self-Attention y Multi-Head Attention
 
-> Cómo un LLM decide **qué tokens mirar** para entender cada token.
->
-> Este repo asume que ya conocés **tokens, tokenización, embeddings y similitud de coseno**. Acá arrancamos desde el punto donde cada token ya es un vector.
+> Viene de [02. Embeddings](../02-embeddings-y-similitud-coseno/README.md): cada token ya es un vector. Acá se ve cómo un token **mira a los demás** para entender qué significa en esta frase.
 
 ---
 
@@ -263,14 +261,6 @@ Cada cabeza trabaja en dimensión `d_k = d_model / h`, así que **el costo total
                     salida (n × d_model)
 ```
 
-### Números reales
-
-| Modelo | `d_model` | cabezas `h` | `d_k` por cabeza | capas |
-|--------|-----------|-------------|------------------|-------|
-| Transformer original | 512 | 8 | 64 | 6 |
-| GPT-2 small | 768 | 12 | 64 | 12 |
-| GPT-3 175B | 12288 | 96 | 128 | 96 |
-
 ### ¿Qué aprenden las cabezas?
 
 Nadie les dice qué hacer: **se especializan solas** durante el entrenamiento. Investigaciones de interpretabilidad encontraron cabezas que:
@@ -349,77 +339,7 @@ Son tres pasos: **producto punto → softmax → promedio ponderado**. Eso es at
 
 > 📄 Archivo: [`attention_numpy.py`](attention_numpy.py) — requiere `pip install numpy`, después `python3 attention_numpy.py`
 
-```python
-import numpy as np
-
-
-def softmax(x, axis=-1):
-    x = x - x.max(axis=axis, keepdims=True)  # estabilidad numérica
-    e = np.exp(x)
-    return e / e.sum(axis=axis, keepdims=True)
-
-
-def scaled_dot_product_attention(Q, K, V, causal=False):
-    """
-    Q: (..., n, d_k)   K: (..., n, d_k)   V: (..., n, d_v)
-    """
-    d_k = Q.shape[-1]
-    scores = Q @ K.swapaxes(-1, -2) / np.sqrt(d_k)      # (..., n, n)
-
-    if causal:
-        n = scores.shape[-1]
-        mask = np.triu(np.ones((n, n), dtype=bool), k=1)  # True arriba de la diagonal
-        scores = np.where(mask, -np.inf, scores)
-
-    weights = softmax(scores, axis=-1)                   # cada fila suma 1
-    return weights @ V, weights
-
-
-class MultiHeadAttention:
-    def __init__(self, d_model, n_heads, seed=0):
-        assert d_model % n_heads == 0
-        rng = np.random.default_rng(seed)
-        self.h = n_heads
-        self.d_k = d_model // n_heads
-        s = 1 / np.sqrt(d_model)
-        self.W_Q = rng.normal(0, s, (d_model, d_model))
-        self.W_K = rng.normal(0, s, (d_model, d_model))
-        self.W_V = rng.normal(0, s, (d_model, d_model))
-        self.W_O = rng.normal(0, s, (d_model, d_model))
-
-    def _split_heads(self, x):
-        # (n, d_model) → (h, n, d_k)
-        n = x.shape[0]
-        return x.reshape(n, self.h, self.d_k).transpose(1, 0, 2)
-
-    def __call__(self, X, causal=True):
-        Q = self._split_heads(X @ self.W_Q)
-        K = self._split_heads(X @ self.W_K)
-        V = self._split_heads(X @ self.W_V)
-
-        out, weights = scaled_dot_product_attention(Q, K, V, causal)  # (h, n, d_k)
-
-        # (h, n, d_k) → (n, h·d_k) = (n, d_model)
-        n = X.shape[0]
-        out = out.transpose(1, 0, 2).reshape(n, self.h * self.d_k)
-        return out @ self.W_O, weights
-
-
-if __name__ == "__main__":
-    tokens = ["el", "gato", "duerme", "en", "el", "sillón"]
-    n, d_model, n_heads = len(tokens), 16, 4
-
-    X = np.random.default_rng(42).normal(size=(n, d_model))  # embeddings simulados
-    mha = MultiHeadAttention(d_model, n_heads)
-    out, weights = mha(X, causal=True)
-
-    print("salida:", out.shape)        # (6, 16) → misma forma que la entrada
-    print("pesos:", weights.shape)     # (4, 6, 6) → una matriz n×n por cabeza
-
-    np.set_printoptions(precision=2, suppress=True)
-    print("\nPesos de la cabeza 0 (fila = quien mira, columna = a quien mira):")
-    print(weights[0])
-```
+Hace lo mismo que el ejemplo anterior pero con matrices: todos los tokens a la vez, con máscara causal y 4 cabezas (`d_model = 16`, 6 tokens).
 
 Fijate en la salida:
 
@@ -445,6 +365,10 @@ Con pesos aleatorios los patrones no significan nada; en un modelo entrenado, la
 | **W_O** | Mezcla los resultados de todas las cabezas |
 
 **La idea central:** attention convierte embeddings *estáticos* (un vector por palabra del vocabulario) en representaciones *contextuales* (un vector por palabra **en esta frase**).
+
+---
+
+**Siguiente:** attention es una pieza; apilada con otras forma el modelo completo → [04. Arquitectura Transformer](../04-arquitectura-transformer-decoder-only/README.md).
 
 ---
 

@@ -1,196 +1,130 @@
 # Tokens y tokenización
 
-Un LLM no lee letras ni palabras: lee **números**. Antes de que el modelo vea tu texto, un **tokenizer** lo parte en pedazos (**tokens**) y le asigna a cada uno un ID de un vocabulario fijo. El modelo recibe IDs, predice IDs, y el tokenizer los vuelve a convertir en texto.
+> Punto de partida: un LLM no lee letras ni palabras, solo **números**. Este tema explica cómo el texto se convierte en esos números.
+
+---
+
+## 1. Texto → tokens → números
+
+Un **tokenizer** parte el texto en pedazos llamados **tokens** y le da a cada uno un número (su **ID**) sacado de una lista fija, el **vocabulario**. El modelo recibe números, devuelve números, y el tokenizer los vuelve a convertir en texto.
 
 ```
 "los gatitos comen"
-        │  tokenizer (encode)
+        │  partir
         ▼
- ["▁los", "▁gatit", "os", "▁comen"]
-        │
+ [ "▁los" | "▁gatit" | "os" | "▁comen" ]      ▁ = espacio (va pegado a la palabra que sigue)
+        │  buscar en el vocabulario
         ▼
- [  412,    9081,   278,    3305  ]  ──►  modelo  ──►  [ 1534, ... ]
-                                                            │  tokenizer (decode)
-                                                            ▼
-                                                        " pescado"
+ [  412   ,   9081   ,  278 ,   3305   ]  ──►  modelo  ──►  1534  ──►  " pescado"
 ```
 
-Todo lo que pasa con un LLM se mide en tokens: cuánto entra en el contexto, cuánto tarda en responder y **cuánto pagás**.
+Todo en un LLM se mide en tokens: cuánto texto entra, cuánto tarda en responder y **cuánto cuesta**.
 
-## Por qué no por caracteres ni por palabras
+---
 
-| Unidad | Vocabulario | Largo de la secuencia | Problema |
+## 2. ¿De qué tamaño son los pedazos?
+
+Hay dos opciones obvias, y ninguna sirve:
+
+- **Por letras:** el vocabulario es chico (unos cientos de símbolos), pero un texto se vuelve larguísimo. Cada token es un paso de trabajo para el modelo, así que todo se vuelve lento y caro.
+- **Por palabras:** el texto queda corto, pero el vocabulario no tiene fin: `gato`, `gatos`, `gatito`, `gatitas`… cada variante es una entrada distinta, sin relación entre sí. Y una palabra que no estaba en la lista no se puede representar.
+
+La solución es el punto medio: **pedazos de palabra** (*subwords*). Lo frecuente queda entero (`▁los`) y lo raro se arma con partes (`▁gatit` + `os`). Los modelos actuales usan vocabularios de 50.000 a 200.000 tokens.
+
+| | Por letras | Por palabras | Subwords |
 |---|---|---|---|
-| **Caracteres** | ~100–300 | Larguísima | Cada letra es un paso de cómputo; se gasta el contexto enseguida |
-| **Palabras** | Infinito | Corta | `gato`, `gatos`, `gatito` son tres entradas sin relación; una palabra nueva no tiene ID |
-| **Subwords** | 50k–200k | Intermedia | Lo frecuente es un token; lo raro se arma con pedazos. Es lo que se usa |
+| Tamaño del vocabulario | Chico | Infinito | 50k–200k, fijo |
+| Largo del texto en tokens | Muy largo | Corto | Casi tan corto como por palabras |
+| Palabra nueva | Se puede | No se puede | Se arma con pedazos |
 
-## Conceptos clave
+---
 
-| Concepto | Qué es |
-|---|---|
-| **Token** | La unidad que ve el modelo: puede ser una palabra, un pedazo, un carácter o un byte. |
-| **Vocabulario** | La lista fija de todos los tokens posibles. Cada uno tiene un ID. |
-| **Token ID** | El número que representa a un token. Es lo único que entra al modelo. |
-| **Encode / Decode** | Texto → IDs y IDs → texto. |
-| **Merges** | (BPE) Lista ordenada de pares que se fusionaron al entrenar el tokenizer. |
-| **Pre-tokenización** | Partir el texto en "palabras" antes de tokenizar, para que los tokens no crucen de una a otra. |
-| **Normalización** | Limpiar el texto antes: Unicode (NFKC), a veces minúsculas o acentos. |
-| **Byte-level** | Tokenizer que arranca desde los 256 bytes en vez de caracteres: puede representar cualquier texto. |
-| **`<unk>`** | Token "desconocido". Aparece cuando el tokenizer no puede representar algo, y se pierde información. |
-| **Tokens especiales** | Marcas que no son texto: inicio/fin de secuencia, roles del chat, separadores. |
-| **Fertilidad / compresión** | Cuántos tokens por palabra (o caracteres por token) da un tokenizer sobre un texto. |
+## 3. Cómo se elige qué pedazos existen
 
-## Tipos de tokenizer
+### BPE (Byte Pair Encoding): fusionar lo que más se repite
 
-### 1. BPE (Byte Pair Encoding)
+Se toma muchísimo texto, se lo parte en letras, y se repite un único paso: **buscar el par de vecinos que más aparece y juntarlo en un pedazo nuevo**.
 
-Arranca de caracteres y **fusiona** una y otra vez el par de vecinos más frecuente hasta llegar al tamaño de vocabulario buscado.
-- ✅ Simple, determinístico, comprime bien lo frecuente.
-- ❌ Un carácter que nunca vio queda como `<unk>`.
-- Lo usaban: GPT-1 y los modelos de traducción donde apareció (Sennrich et al., 2016).
+```
+inicio:   ▁ l o s   ▁ g a t o s   ▁ p e r r o s
+paso 1:   "o"+"s" es el par más frecuente  →  ▁ l os   ▁ g a t os   ▁ p e r r os
+paso 2:   "▁"+"l"                           →  ▁l os    ▁ g a t os   ▁ p e r r os
+...
+paso N:                                        ▁los     ▁gatos       ▁perros
+```
 
-### 2. Byte-level BPE
+Cada fusión agrega un token al vocabulario. Se frena al llegar al tamaño buscado. Después, para partir un texto nuevo, se aplican las mismas fusiones en el mismo orden: una palabra que nunca vio igual se arma con pedazos conocidos (`gatitas` → `▁gatit | a | s`).
 
-El mismo algoritmo, pero el vocabulario inicial son los **256 bytes** en vez de caracteres. Cualquier texto (emojis, chino, binario) se puede representar: en el peor caso, byte por byte.
-- ✅ Nunca hay `<unk>`.
-- ❌ Un carácter raro puede costar 3 o 4 tokens, y un token puede cortar un carácter UTF-8 a la mitad.
-- Lo usan: GPT-2 en adelante, Llama 3 y la mayoría de los LLMs actuales.
+### Byte-level BPE: arrancar de bytes
 
-### 3. WordPiece
+El mismo método, pero en vez de arrancar de letras arranca de los **256 bytes** con los que la computadora guarda cualquier texto. Así **cualquier cosa se puede representar** (emojis, chino, símbolos raros): en el peor caso, byte por byte. **Es lo que usan casi todos los LLM actuales.**
 
-Parecido a BPE, pero elige el merge que más aumenta la **probabilidad** del corpus, no el más frecuente. Marca la continuación de una palabra con `##` (`gat`, `##itos`).
-- Lo usan: BERT y sus derivados. Casi no aparece en LLMs generativos.
+El costo: lo que el tokenizer vio poco al entrenar se parte en muchos pedazos. Un emoji puede ser 4 tokens.
 
-### 4. Unigram (SentencePiece)
+### Unigram (SentencePiece): podar en vez de fusionar
 
-Al revés que BPE: arranca con un vocabulario **enorme** y lo **poda**, sacando los tokens que menos aportan. Para tokenizar elige la partición más probable (algoritmo de Viterbi). SentencePiece es la librería que lo implementa: trabaja sobre el texto crudo, sin pre-tokenizar, y codifica el espacio como `▁`.
-- ✅ Independiente del idioma (sirve para japonés o chino, que no tienen espacios). Puede dar varias particiones posibles, lo que sirve como regularización al entrenar.
-- Lo usan: T5, ALBERT, XLNet, mBART. *(Ojo: SentencePiece también implementa BPE, y así lo usan Llama 1 y 2 o Gemma. "SentencePiece" es la herramienta, no el algoritmo.)*
+El camino inverso: arranca con una lista **enorme** de pedazos posibles y va **sacando** los que menos aportan hasta llegar al tamaño buscado. Funciona igual de bien en idiomas sin espacios, como japonés o chino. Lo usan modelos como T5.
 
-| | BPE | Byte-level BPE | WordPiece | Unigram |
-|---|---|---|---|---|
-| Arranca de | Caracteres | 256 bytes | Caracteres | Vocabulario grande |
-| Cómo crece | Fusiona el par más frecuente | Igual | Fusiona el más probable | Poda el que menos aporta |
-| `<unk>` | Sí | No | Sí | Sí (salvo con byte fallback) |
+---
 
-## Costo por token
+## 4. Consecuencias que se notan al usar un LLM
 
-Las APIs cobran **por millón de tokens (MTok)**, con precios distintos para cada tipo de token:
+**El modelo no ve letras.** Recibe `▁strawberry` como 2 o 3 números, no como 10 letras. Por eso le cuesta contar cuántas "r" tiene una palabra, invertirla o hacer cuentas largas "de cabeza": los números también se parten de forma arbitraria (`2024` puede ser `202 | 4`). Para eso conviene darle una herramienta (que ejecute código).
+
+**Espacios y mayúsculas cambian los tokens.** `gato`, ` gato` y `Gato` son tokens distintos. Un ejemplo con formato inconsistente o un prompt que termina en espacio pueden empeorar la respuesta.
+
+**No todos los textos cuestan lo mismo.** La regla "1 palabra ≈ 1 token" sirve más o menos para prosa en inglés. El código, el JSON, las URLs, los números y otros idiomas usan bastantes más tokens por palabra. El mismo contenido en español o japonés puede costar bastante más que en inglés.
+
+**Cada modelo tiene su tokenizer.** El mismo texto da otra cantidad de tokens en Claude, en GPT o en Llama, e incluso entre versiones del mismo modelo. Para contar bien hay que usar el del modelo exacto.
+
+---
+
+## 5. Tokens especiales
+
+El modelo no recibe "mensajes de un chat": recibe **una sola tira de tokens**. Para marcar quién habla y dónde termina cada mensaje se usan **tokens especiales**, números reservados que nunca salen del texto común:
+
+```
+[<inicio>] [<system>] respondé corto. [<fin>] [<user>] ¿qué comen los gatos? [<fin>] [<assistant>]  ← el modelo sigue desde acá
+```
+
+Cuando el modelo termina de responder, **genera** el token de fin; así se sabe cuándo cortar. Estos marcadores, y la descripción de las herramientas que le das al modelo, también cuentan como tokens.
+
+---
+
+## 6. Costo por token
+
+Las APIs cobran **por millón de tokens**, con un precio distinto según el tipo:
 
 | Tipo | Qué es | Precio relativo |
 |---|---|---|
-| **Input** | Todo lo que mandás: system prompt, historial, documentos, definición de tools | 1× |
-| **Output** | Lo que genera el modelo | ~5× el input |
-| **Razonamiento** | Tokens que el modelo "piensa" antes de responder (aunque no los veas) | Se cobran como output |
-| **Cache write** | Guardar un prefijo del prompt en caché | 1,25× (TTL 5 min) o 2× (TTL 1 h) |
-| **Cache read** | Reusar un prefijo ya cacheado | ~0,1× o menos |
-| **Batch** | Requests asíncronos, sin apuro | 50% de descuento |
-
-Ejemplo con Claude Opus 5.5 ($4 input / $20 output por MTok, precios de octubre 2026):
+| **Input** | Todo lo que mandás: instrucciones, historial, documentos | 1× |
+| **Output** | Lo que escribe el modelo, **incluido lo que "piensa"** antes de responder | ~5× |
+| **Caché** | Reusar un comienzo de prompt que ya se mandó | ~0,1× |
+| **Batch** | Pedidos sin apuro, procesados en horas | 50% de descuento |
 
 ```
-Un request:   2.000 tokens de input  ×  $4  / 1.000.000  =  $0,008
-                500 tokens de output ×  $20 / 1.000.000  =  $0,010
-                                                           ───────
-                                                            $0,018   ← el output es 1/5 de los tokens y más de la mitad del costo
-
-× 1.000.000 requests por mes                             =  $18.000
+Ejemplo con Opus 5.5 ($4 input / $20 output por millón, octubre 2026):
+  2.000 tokens de input  →  $0,008
+    500 tokens de output →  $0,010   ← un quinto de los tokens, más de la mitad del costo
 ```
 
-Tres cosas que se desprenden de esto:
-1. **El output pesa más**: pedir respuestas cortas o estructuradas ahorra más que recortar el prompt.
-2. **El historial se paga en cada turno**: en un chat, el turno 20 vuelve a mandar los 19 anteriores como input. El prompt caching existe para esto.
-3. **El mismo texto cuesta distinto según el modelo**: cada familia tiene su propio tokenizer. Por ejemplo, el tokenizer de Claude que llegó con Opus 4.7 genera entre 1× y 1,35× los tokens del anterior para el mismo texto.
+Tres consecuencias:
+1. **La respuesta pesa más que la pregunta**: pedir respuestas cortas ahorra más que recortar el prompt.
+2. **En un chat, todo el historial se vuelve a mandar en cada turno**: el turno 20 paga los 19 anteriores. Para eso existe el caché.
+3. **Lo que no se mide no se ve**: cada respuesta de la API trae cuántos tokens usó (`usage`). Guardarlo es la única forma de saber de dónde sale el costo.
 
-> Los precios cambian seguido. La tabla actualizada está en [`implementaciones/06-contar-y-estimar-costo`](implementaciones/06-contar-y-estimar-costo).
+> Los precios cambian seguido: [página de precios de Claude](https://platform.claude.com/docs/en/about-claude/pricing).
 
-## Errores comunes
+Para ver cómo se parte un texto real: [tiktokenizer.vercel.app](https://tiktokenizer.vercel.app).
 
-### 1. Estimar tokens por cantidad de palabras
-"1 palabra ≈ 1 token" (o "4 caracteres ≈ 1 token") más o menos sirve para prosa en inglés, y falla con código, JSON, números, URLs y otros idiomas. Un mismo texto en español, japonés o hindi puede costar varias veces más que en inglés.
-→ Contar con el tokenizer real del modelo que vas a usar.
+---
 
-### 2. Ignorar espacios y mayúsculas
-`"hola"`, `" hola"` y `"Hola"` son tokens distintos. Afecta los stop sequences, los few-shot mal formateados y los prompts que terminan con un espacio.
+## Resumen
 
-### 3. Esperar que el modelo vea letras
-El modelo no ve las "r" de `strawberry`: ve 2 o 3 tokens opacos. Lo mismo pasa con los números: `12345` se parte de forma arbitraria. Por eso cuesta contar letras, invertir palabras o hacer aritmética "de cabeza".
-→ Para eso, una herramienta (código) en vez del modelo.
+- Un LLM trabaja con **números**: el tokenizer convierte texto en tokens y cada token en un ID.
+- Los tokens son **pedazos de palabra**: lo frecuente entero, lo raro en partes.
+- El vocabulario se arma **fusionando** lo que más se repite (BPE) o **podando** una lista grande (Unigram).
+- Por eso el modelo **no ve letras**, y el mismo contenido **cuesta distinto** según el idioma, el formato y el modelo.
+- Se paga **por token**, y la respuesta cuesta ~5 veces más que la pregunta.
 
-### 4. Optimizar solo el input
-Recortar el prompt un 20% y dejar que el modelo responda con párrafos de relleno. El output es el token más caro.
-→ Limitar `max_tokens`, pedir formato estructurado, bajar el effort cuando la tarea es simple.
-
-### 5. Contar con el tokenizer equivocado
-Usar `tiktoken` (de OpenAI) para estimar tokens de Claude, o el de un modelo viejo para uno nuevo. Las diferencias pueden ser grandes.
-→ El endpoint de conteo de cada proveedor (`count_tokens` en la API de Claude).
-
-### 6. Cortar texto por caracteres o bytes
-Truncar un documento por cantidad de caracteres para "que entre": podés pasarte igual o romper un carácter UTF-8 a la mitad.
-→ Truncar por tokens, y en un límite natural (párrafo, oración).
-
-### 7. No medir
-Cada respuesta de la API trae el `usage` (tokens de input, output y cache). Si no lo guardás, te enterás del costo con la factura.
-
-## Cómo inspeccionar tokens
-
-Esto requiere instalar paquetes (el resto del proyecto no):
-
-```bash
-pip install tiktoken sentencepiece anthropic
-```
-
-```python
-# Tokenizer de OpenAI (byte-level BPE)
-import tiktoken
-enc = tiktoken.get_encoding("o200k_base")
-ids = enc.encode("los gatitos comen")
-print(ids, [enc.decode([i]) for i in ids])
-
-# Tokens de Claude: el tokenizer no es público, se cuenta con la API
-import anthropic
-client = anthropic.Anthropic()
-r = client.messages.count_tokens(
-    model="claude-opus-5-5",
-    messages=[{"role": "user", "content": "los gatitos comen"}],
-)
-print(r.input_tokens)
-```
-
-Para ver tokenizers en el navegador: [tiktokenizer.vercel.app](https://tiktokenizer.vercel.app).
-
-## Estructura
-
-- [`implementaciones/`](implementaciones): cada tipo de tokenizer y cómo calcular el costo, con un diagrama y código mínimo.
-  1. [`01-por-caracteres-y-palabras`](implementaciones/01-por-caracteres-y-palabras): los dos extremos y por qué no sirven.
-  2. [`02-bpe`](implementaciones/02-bpe): BPE desde cero, merge por merge.
-  3. [`03-byte-level-bpe`](implementaciones/03-byte-level-bpe): arrancar de bytes para que nunca haya `<unk>`.
-  4. [`04-unigram-sentencepiece`](implementaciones/04-unigram-sentencepiece): podar un vocabulario grande y tokenizar con Viterbi.
-  5. [`05-tokens-especiales`](implementaciones/05-tokens-especiales): cómo se ve una conversación cuando llega al modelo.
-  6. [`06-contar-y-estimar-costo`](implementaciones/06-contar-y-estimar-costo): calculadora de costo por request y por mes.
-- [`errores/`](errores): cada error común, cómo se ve y cómo se arregla.
-  1. [`01-estimar-por-palabras`](errores/01-estimar-por-palabras): código, JSON, números y otros idiomas cuestan más tokens por palabra.
-  2. [`02-espacios-y-mayusculas`](errores/02-espacios-y-mayusculas): `gato`, ` gato` y `Gato` son tokens distintos.
-  3. [`03-contar-letras`](errores/03-contar-letras): el modelo ve IDs, no letras ni dígitos.
-  4. [`04-ignorar-output`](errores/04-ignorar-output): recortar el prompt ahorra menos que acortar la respuesta.
-  5. [`05-tokenizer-equivocado`](errores/05-tokenizer-equivocado): cada modelo cuenta distinto.
-  6. [`06-cortar-por-caracteres`](errores/06-cortar-por-caracteres): truncar por bytes o caracteres rompe el texto o se pasa del límite.
-  7. [`07-no-medir`](errores/07-no-medir): sin el `usage` no ves el caché roto ni la cola larga.
-
-El código está en Python, solo con la librería estándar (nada de instalar paquetes). La idea es que se entienda aunque vengas de otro lenguaje: el foco está en el concepto, no en trucos del lenguaje.
-
-```bash
-python3 01-tokens-y-tokenizacion/implementaciones/02-bpe/bpe.py
-python3 01-tokens-y-tokenizacion/errores/01-estimar-por-palabras/main.py
-```
-
-## Plan del proyecto
-
-Los tokenizers de este proyecto se entrenan sobre un corpus chico: sirven para entender el mecanismo, no para dar números de producción. Para ver los reales:
-
-1. **tiktoken**: tokenizar el mismo texto en inglés, español, código y JSON, y comparar cuántos tokens da cada uno.
-2. **SentencePiece**: entrenar un modelo Unigram y uno BPE sobre el mismo corpus y comparar los vocabularios.
-3. **Claude `count_tokens`**: contar los mismos textos y compararlos con tiktoken, para ver que cada tokenizer da números distintos.
-4. **Costo real**: loguear el `usage` de cien requests reales y armar el costo por request y por mes.
-5. **Romperlo a propósito**: reproducir los errores de arriba con un tokenizer real.
+**Siguiente:** cada ID se convierte en una lista de números que representa su significado → [02. Embeddings](../02-embeddings-y-similitud-coseno/README.md).
